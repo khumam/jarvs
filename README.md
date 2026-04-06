@@ -185,10 +185,3 @@ Content-Type: application/json
 > Safari has a known quirk where the STT `isFinal` event may never fire — the app handles this by promoting the last interim result to final when recognition ends.
 
 ---
-
-## License
-
-Private — all rights reserved.
-```
-
-Now let me apply it:

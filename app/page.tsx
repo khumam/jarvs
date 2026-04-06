@@ -1,65 +1,161 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import { useOrbChat } from "@/hooks/useOrbChat";
+import { HudPanel } from "@/components/HudPanel";
+
+const OrbScene = dynamic(
+  () => import("@/components/OrbScene").then((mod) => mod.OrbScene),
+  { ssr: false }
+);
 
 export default function Home() {
+  const {
+    state,
+    lastTranscript,
+    lastResponse,
+    sttError,
+    stats,
+    currentText,
+    visibleWordCount,
+    startListening,
+    stopListening,
+    isListening,
+  } = useOrbChat();
+
+  // Prevent hydration mismatch — only render dynamic content after mount
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Spacebar only to toggle listening
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && e.target === document.body) {
+        e.preventDefault();
+        if (isListening) {
+          stopListening();
+        } else {
+          startListening();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  const stateLabels: Record<string, string> = {
+    idle: "STANDBY",
+    listening: "RECEIVING",
+    thinking: "PROCESSING",
+    speaking: "TRANSMITTING",
+  };
+
+  const formatTokens = (n: number) => n.toLocaleString();
+  const formatLatency = (ms: number) => ms > 0 ? `${ms}ms` : "—";
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      {/* 3D Canvas — fills viewport, no click handler */}
+      <div className="canvas-fill">
+        <OrbScene state={state} />
+      </div>
+      <div className="vignette" />
+
+      {/* ── Top Left: Model & Stats ── */}
+      <HudPanel position="tl" title="System" dotColor="cyan">
+        <div className="panel-row">
+          <span className="panel-label">Model</span>
+          <span className="panel-value cyan">{mounted ? stats.model : "—"}</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="panel-row">
+          <span className="panel-label">Tokens In</span>
+          <span className="panel-value">{mounted && stats.promptTokens > 0 ? formatTokens(stats.promptTokens) : "—"}</span>
         </div>
-      </main>
-    </div>
+        <div className="panel-row">
+          <span className="panel-label">Tokens Out</span>
+          <span className="panel-value">{mounted && stats.completionTokens > 0 ? formatTokens(stats.completionTokens) : "—"}</span>
+        </div>
+        <div className="panel-row">
+          <span className="panel-label">Total Tokens</span>
+          <span className="panel-value">{mounted && stats.totalTokens > 0 ? formatTokens(stats.totalTokens) : "—"}</span>
+        </div>
+        <div className="panel-row">
+          <span className="panel-label">Latency</span>
+          <span className={`panel-value ${mounted && stats.latency > 0 ? "green" : ""}`}>{mounted ? formatLatency(stats.latency) : "—"}</span>
+        </div>
+        <div className="panel-row">
+          <span className="panel-label">Session</span>
+          <span className="panel-value">{mounted ? stateLabels[state] : "STANDBY"}</span>
+        </div>
+      </HudPanel>
+
+      {/* ── Top Right: API Health ── */}
+      <HudPanel position="tr" title="Connection" dotColor={mounted && stats.apiStatus === "Online" ? "green" : mounted && stats.apiStatus === "Error" ? "magenta" : "cyan"}>
+        <div className="panel-row">
+          <span className="panel-label">API</span>
+          <span className={`panel-value ${mounted && stats.apiStatus === "Online" ? "green" : mounted && stats.apiStatus === "Error" ? "magenta" : ""}`}>
+            {mounted ? stats.apiStatus : "Ready"}
+          </span>
+        </div>
+        <div className="panel-row">
+          <span className="panel-label">Endpoint</span>
+          <span className="panel-value">{mounted ? stats.endpoint : "—"}</span>
+        </div>
+        <div className="panel-row">
+          <span className="panel-label">Protocol</span>
+          <span className="panel-value">REST/POST</span>
+        </div>
+        <div className="panel-row">
+          <span className="panel-label">STT</span>
+          <span className={`panel-value ${mounted && isListening ? "magenta" : mounted && sttError ? "magenta" : ""}`}>
+            {mounted ? (sttError ? "Error" : isListening ? "Active" : "Ready") : "Ready"}
+          </span>
+        </div>
+        <div className="panel-row">
+          <span className="panel-label">TTS</span>
+          <span className={`panel-value ${mounted && state === "speaking" ? "green" : ""}`}>
+            {mounted ? (state === "speaking" ? "Speaking" : "Idle") : "Idle"}
+          </span>
+        </div>
+      </HudPanel>
+
+      {/* ── Bottom Left: User Transcript ── */}
+      <HudPanel position="bl" title="Input" dotColor={isListening ? "magenta" : "cyan"}>
+        <div className="panel-body">
+          {sttError ? (
+            <span className="placeholder" style={{ color: "var(--magenta)" }}>{sttError}</span>
+          ) : isListening && !lastTranscript ? (
+            <span className="placeholder">Listening...</span>
+          ) : lastTranscript ? (
+            lastTranscript
+          ) : (
+            <span className="placeholder">Awaiting voice input</span>
+          )}
+        </div>
+      </HudPanel>
+
+      {/* ── Bottom Right: Bot Response ── */}
+      <HudPanel position="br" title="Response" dotColor={state === "speaking" ? "green" : "cyan"}>
+        <div className="panel-body">
+          {currentText && currentText.length > 0 ? (
+            currentText.map((word, i) => (
+              <span key={i} className={`word ${i < visibleWordCount ? "visible" : ""}`}>
+                {word}{" "}
+              </span>
+            ))
+          ) : (
+            <span className="placeholder">
+              {state === "thinking" ? "Processing..." : "No response yet"}
+            </span>
+          )}
+        </div>
+      </HudPanel>
+
+      {/* Space hint */}
+      <div className={`click-hint ${state !== "idle" ? "hidden" : ""}`}>
+        Press Space to speak &middot; Drag to rotate orb
+      </div>
+    </>
   );
 }
